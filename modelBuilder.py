@@ -1,57 +1,87 @@
 
-# coding: utf-8
-
-# In[8]:
-
 from scipy.stats import multivariate_normal
 import numpy as np
-import tensorflow as tf
+import dataCollector as dc
+import json
+import math
+import dataManager
+
+import time
+import calendar
+import datetime
+
+import model.OrmManager as orm
+from model.OrmManager import Task,Model,ModelFeature,Feature,FeatureData,Record,Data
 
 
-# feature = ["cpu","file","memory","network"]
+global distMap
+distMap = {}
 
-numOfData = 10075;
+def initData(features,startTime,endTime):
 
-def initData():
-  
-    filename_queue = tf.train.string_input_producer(["anomaly - Normalization.csv"])
-    reader = tf.TextLineReader()
-    key, value = reader.read(filename_queue)
-    record_defaults = [[1.],[1.],[1.],[1.],["s"]]
-    cpu,file,memory,network,time = tf.decode_csv(
-        value, record_defaults=record_defaults)
-    features = tf.stack([cpu,file,memory,network])
-    dataSet = [[0 for col in range(1)] for row in range(5)]
-    with tf.Session() as sess:
-      # Start populating the filename queue.
-      coord = tf.train.Coordinator()
-      threads = tf.train.start_queue_runners(coord=coord)
-      for i in range(numOfData):
-        # Retrieve a single instance:
-        data1,data2,data3,data4= sess.run(features)
-        dataSet[0].insert(i,data1)
-        dataSet[1].insert(i,data2)
-        dataSet[2].insert(i,data3)
-        dataSet[3].insert(i,data4)
-
-    coord.request_stop()
-    coord.join(threads)
+    data = dataManager.getDataForModelByTime(startTime,endTime)
     
-    print("initData done")
+    modelFeatureSize = len(features)
+   
+    #init 2d array
+    dataSet = [[0 for col in range(1)] for row in range(modelFeatureSize)]
+    #del 0
+    for i in range(modelFeatureSize):
+         del dataSet[i][0]
+
+    for d in data:
+        validation = True
+        
+        for mFeature in features:
+            if mFeature.feature.name not in d:
+               validation = False
+               break
+ 
+            value = d[mFeature.feature.name]
+            fromLimit = mFeature.value_from
+            toLimit = mFeature.value_to
+
+            if value>=fromLimit and (value<toLimit or toLimit==-1 ):
+                pass
+            else:
+            # value validation failed
+               validation = False
+               break;
+
+        if validation:
+            for k in range(len(features)):
+                 f = features[k]
+                 value = d[f.feature.name]
+                 value = processData(value,f.process_method)
+                 dataSet[k].append(value)
+
+    numOfData = len(dataSet[0])
+    print("initData done with ",numOfData," data")
+
     return dataSet
 
 
-def initDist(dataSet):
+def processData(value,process_method):
+    if process_method =="":
+        value = math.fabs(value)
+    # +1 to avoid math error
+    elif process_method == 'log2':
+       value = math.log2(value+1)
+    elif process_method == 'log10':
+       value = math.log10(value+1)
+
+    return value
+
+
+def initDist(model,dataSet):
     
-    cpuData = np.array(dataSet[0])
-    
-    fileData = np.array(dataSet[1])
+    dataGroup = []
 
-    memoryData = np.array(dataSet[2])
+    for i in range(len(model.features)):
 
-    networkData = np.array(dataSet[3])
+       dataGroup.append(np.array(dataSet[i]))
 
-    data= np.vstack((cpuData,fileData,memoryData,networkData))
+    data= np.vstack(dataGroup)
 
     mu = np.mean(data,axis=1,dtype =np.float32)
     print("means")
@@ -65,61 +95,224 @@ def initDist(dataSet):
     print("cov")
     print(chol)
     
-    dist = multivariate_normal(mean=mu, cov=chol)
-    #dist =  tf.contrib.distributions.MultivariateNormalFull(mu, chol)
-    print("initDist")
+    dist = multivariate_normal(mean=mu, cov=chol, allow_singular=True)
+    print("init Dist done")
     return dist
 
-def getDataSample(dataSet,i):
+def getDataSample(model,dataSet,i):
     dataSample = []
-    dataSample.append(dataSet[0][i])
-    dataSample.append(dataSet[1][i])
-    dataSample.append(dataSet[2][i])
-    dataSample.append(dataSet[3][i])
+    for j in range(len(model.features)):
+          dataSample.append(dataSet[j][i])
     return dataSample
 
 def getPdf(dist,data):
     return dist.pdf(data)
 
-def getPdfProductSet(dist,dataSet):
+def getPdfProductSet(model,dist,dataSet):
     pdfProductSet = []
-    for i in range(numOfData):
-        pdf = getPdf(dist,getDataSample(dataSet,i))
+    for i in range(len(dataSet[0])):
+        pdf = getPdf(dist,getDataSample(model,dataSet,i))
         pdfProductSet.append(pdf)
+
     return pdfProductSet    
 
-def getMinPdf(pdfProductSet):
-    init = tf.global_variables_initializer()
-    sess = tf.InteractiveSession()
-    sess.run(init)
+def initModel(s,startTime,endTime,featureConfig,description = None,kpi=0.0001):
+    print("init modle:",description)
 
-    pdfProductData = np.array(pdfProductSet)
-    pdfProductMin = tf.cast(np.min(pdfProductData,0),tf.float32)
-    pmin = sess.run([pdfProductMin])
-    return pmin
+    model = Model()
+    initModelFeatures(s,model,featureConfig)
+    dataManager.initDBConnection()
+    dataSet = initData(model.features,startTime,endTime)
+    dataSet = normalizeDataItemSet(model.features,dataSet)
+    dist = initDist(model,dataSet)
+    pdfProductSet = getPdfProductSet(model,dist,dataSet)
 
-def initModel():
-    dataSet = initData()
-    dist = initDist(dataSet)
-    pdfProductSet = getPdfProductSet(dist,dataSet)
-    minPdf = getMinPdf(pdfProductSet)
-    model = {'dist':dist,'KPI':minPdf}
+
+    # dataManager.showFigure(data = pdfProductSet,title = "PDF",binSize = 10,show=True)
+
+    pdfProductSet = np.sort(pdfProductSet)
+    kpiIndex = math.floor(len(pdfProductSet)*kpi)
+
+    kpiPdf = pdfProductSet[kpiIndex]
+
+    minPdf = min(pdfProductSet)
+    maxPdf = max(pdfProductSet)
+    a = np.array(pdfProductSet)
+    meanPdf = np.mean(a)
+
+    print ("min")
+    print (minPdf)
+
+    print ("max")
+    print (maxPdf)
+
+    print ("mean")
+    print (meanPdf)
+
+    print ("kpi")
+    print (kpiPdf)
+
+    model.description = description
+    model.kpi_index = kpi
+    model.data_time_from = startTime
+    model.data_time_to = endTime
+    model.max_pdf = maxPdf
+    model.min_pdf = minPdf
+    model.mean_pdf = meanPdf
+    model.kpi_pdf = kpiPdf
+    model.dist = dist
+
+    print(" init model done")
+    print("kpi-------init",model.kpi_pdf)
 
     return model
 
+def initModelByInterval(s,intervalTime,featureConfig,description = None,kpi=0.0001):
+
+    endTime = calendar.timegm(time.gmtime())
+    startTime =endTime - intervalTime
+
+    endTime = datetime.datetime.fromtimestamp(endTime)
+    startTime = datetime.datetime.fromtimestamp(startTime)
+    return initModel(s,startTime,endTime,featureConfig,description,kpi)
+ 
+
+def initModelFeatures(s,model,featureConfig):
+    # featureConfig = {"cpu":["log2",10,-1],"file":["log10",0,-1],"memory":["log2",0,-1],"network":["log10",0,-1]}
+
+    for key,values in  featureConfig.items():
+        name = key
+        feature = s.query(Feature).filter(Feature.name == name).first()
+        if feature == None:
+            feature = Feature()
+            feature.name = name
+        modelFeature = ModelFeature()
+
+        modelFeature.feature = feature
+        modelFeature.process_method = values[0]
+        modelFeature.value_from = values[1]
+        modelFeature.value_to = values[2]
+        model.features.append(modelFeature)
+
+def normalizeDataItemSet(features,dataSet):
+    for i in range(len(dataSet)):
+        featureData = dataSet[i]
+        maxValue = max(featureData)
+        modelFeature = features[i]
+        modelFeature.max_value = maxValue
+        modelFeature.min_value = min(featureData)
+
+        for j in range(len(featureData)):
+            featureData[j] = normalizeDataItem(featureData[j],modelFeature.max_value)
+
+    return dataSet   
+
+def normalizeDataItem(value,max_value):
+    value = value/float(max_value)
+    return value  
+
+def normalizeDataSet(dataSet):
+    normalizedDataSet = []
+    maxValue = max(dataSet)
+    for d in dataSet:
+        nd = d/maxValue
+        normalizedDataSet.append(nd)
+
+    return normalizedDataSet
+
+def checkDataWithModel(model,data):
+    dataItem = []
+    for mf in model.features:
+        rawValue = data.get(mf.feature_name)
+        rawValue = processData(rawValue,mf.process_method)
+        rawValue = normalizeDataItem(rawValue,mf.max_value)
+        dataItem.append(rawValue)
+
+    dist = distMap[model.id]
+    currentPdf = dist.pdf(dataItem)
+    kpiPdf = model.kpi_pdf
+
+    result ={}
+    result['pdf'] = currentPdf
+    result['kpi'] = kpiPdf
+
+    if currentPdf > kpiPdf:
+         result['result'] = True
+    else: 
+         result['result'] = False
+
+    return result
+
+def filterDataByConfig(data,featureConfig):
+    dataSet = []
+
+    for d in data:
+        valid = True
+        for key in featureConfig.keys():
+           if key in d:
+               processMethod = featureConfig[key][0]
+               fromLimit = featureConfig[key][1]
+               toLimit = featureConfig[key][2]
+               value = d[key]
+               if (value>=fromLimit and (value < toLimit or toLimit ==-1)):
+                   pass;
+               else:
+                    valid = False
+                    break;
+           else:
+                valid = False
+                break;
+        if valid:
+            dataSet.append(d)
+    print ('valid num:',len(dataSet))
+    return dataSet
 
 
+def showFeature(data,featureConfig,normalize):
+    for key in featureConfig.keys():
+        dataSet = []
+        for d in data:
+           if key in d:
+               processMethod = featureConfig[key][0]
+               fromLimit = featureConfig[key][1]
+               toLimit = featureConfig[key][2]
+               value = d[key]
+               if (value>=fromLimit and (value < toLimit or toLimit ==-1)):
+                  dataSet.append(processData(d[key],processMethod))
+        maxValue = max(dataSet)
+        if normalize:
+
+            processedValueSet = []
+            for d in dataSet:
+                processedValueSet.append(d/maxValue)
+            dataSet = processedValueSet
+
+        print ('valid num:',len(dataSet))
+
+        dataManager.showFigure(data = dataSet,title = key+" from "+str(fromLimit)+" to "+ str(toLimit)+' with '+processMethod,show=True)
 
 
-
-# In[10]:
-
-model = initModel()
-dist = model['dist']
-minP = model['KPI']
+def close():
+    dataManager.close()
 
 
-# In[ ]:
+if __name__ == "__main__":
+    # process method,from,to
+
+    intervalTime =3*7*24*60*60
+    data = dataManager.getDataByIntervalTime(intervalTime)
+    featureConfig = {"cpu":["",0,-1],"fileSystem":["log10",0,-1],"memory":["",0,-1],"network":["log10",0,-1],"requestCount":["",10,-1]}
+    featureConfig = {"fileSystem":["",0,-1]}
+  
+    #data = filterDataByConfig(data,featureConfig)
+
+    showFeature(data,featureConfig,normalize=False)
+
+    #,"fileSystem":["log10",0,-1],"memory":["log2",0,-1],"network":["log10",0,-1],"requestCount":["log2",10,-1]}
+
+
+    #checkData(6, 1654160000, 74.1612, 7854.78)
+    close()
 
 
 
