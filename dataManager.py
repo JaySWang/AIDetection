@@ -325,7 +325,43 @@ def trainning(startTimeS,endTimeS,startTest, endTest,windowSize,ksize):
     kmeans = KMeans(n_clusters=ksize, random_state=0).fit(td)
     clusters = kmeans.cluster_centers_
 
+
+    normalTd = []
+    anormalyTd = []
+    normalKPI = (len(td)/ksize)*0.05
+    print("kpi:",normalKPI)
+
     print(kmeans.labels_)
+
+    
+    for i in range(0,len(kmeans.labels_)):
+        if kmeans.labels_[i] in dataGroup:
+           dataGroup[kmeans.labels_[i]] = dataGroup[kmeans.labels_[i]]+1
+        else:
+           dataGroup[kmeans.labels_[i]]=1
+
+
+    for i in range(0,len(td)):
+        if (dataGroup[kmeans.labels_[i]]>=normalKPI):
+            normalTd.append(td[i])
+        else:
+            if kmeans.labels_[i] not in anormalyGroup:
+               anormalyGroup[kmeans.labels_[i]]= []
+            anormalyGroup[kmeans.labels_[i]].append(td[i])
+
+
+
+    # print (normalTd)
+
+
+
+    print("anormaly groups:",len(anormalyGroup))
+    for i in anormalyGroup:
+        print ("group:",i," with ",len(anormalyGroup[i])," data")
+
+    print("normal data size:",len(normalTd))
+    normalKmeans = KMeans(n_clusters=ksize-len(anormalyGroup), random_state=0).fit(normalTd)
+
 
     for i in range(0,len(kmeans.labels_)):
         if kmeans.labels_[i] in stdevs:
@@ -380,8 +416,11 @@ def trainning(startTimeS,endTimeS,startTest, endTest,windowSize,ksize):
     legend = []
     for j in range(0,len(testSample)):
         predictGroup = kmeans.predict([testSample[j]])
-        print(predictGroup)
-        t = "belongs to" + str(predictGroup)+" with stdev:"+str(getDiff(clusters[i],testSample[j]))
+        t = " belongs to" + str(predictGroup)+" with stdev:"+str(getDiff(clusters[predictGroup][0],testSample[j]))
+        print("test data ",j,t)
+        print("there are ", str(len(stdevs[predictGroup[0]])), " data in group ",predictGroup," with stdev mean:",str(stdevMeans[predictGroup[0]])," stdev vars:",str(stdevVars[predictGroup[0]]))
+        print(" ")
+
         p.plot(x,testSample[j])
         legend.append(t)
 
@@ -390,6 +429,8 @@ def trainning(startTimeS,endTimeS,startTest, endTest,windowSize,ksize):
  
     plt.show()
 
+
+    taskData['normalKmeans'] = normalKmeans
     taskData['kmeans'] = kmeans
     taskData['testData'] = testSample
 
@@ -439,9 +480,11 @@ def getDiff(center,sample):
     return sum.quantize(Decimal('0.00'))
 
 
-def showGroup(group,windowSize,testSample=None):
+def showGroup(group,windowSize,testSample=None,km = "kmeans"):
 
-    clusters = taskData['kmeans'].cluster_centers_
+    print(km)
+
+    clusters = taskData[km].cluster_centers_
 
     plt.figure(figsize=(4,8),dpi=100)
     plt.title("requestCount")
@@ -449,6 +492,7 @@ def showGroup(group,windowSize,testSample=None):
 
 
     if(testSample==None):
+       print("possible?") 
        testSample = taskData['testData']
 
     x = []
@@ -469,7 +513,7 @@ def showGroup(group,windowSize,testSample=None):
 
     legend = []
     for j in range(0,len(testSample)):
-        predictGroup = taskData['kmeans'].predict([testSample[j]])
+        predictGroup = taskData[km].predict([testSample[j]])
         t = "belongs to" + str(predictGroup)+" with stdev:"+str(getDiff(clusters[predictGroup][0],testSample[j]))
         if(predictGroup==group):
             p.plot(x,testSample[j])
@@ -485,7 +529,8 @@ args = []
 stdevs = {}
 stdevMeans = {}
 stdevVars = {}
-
+dataGroup = {}
+anormalyGroup = {}
 
 
 def save_start(ctx, param, value):
@@ -531,15 +576,41 @@ def save_group(ctx, param, value):
         del args[:]
         getStartTime()
     elif value ==-2:
-        testInputData() 
+        testInputData()
+    elif value ==-3:
+        testInputDataWithNormalKmeans()  
+    elif value ==-4:
+        selectNormalGroup() 
 
     showGroup(value,args[4])
     selectGroup()
 
+def save_normal_group(ctx, param, value):
+    if value ==-1:
+        del args[:]
+        getStartTime()
+    elif value ==-2:
+        testInputData()
+    elif value ==-3:
+        testInputDataWithNormalKmeans() 
+    elif value ==-4:
+        selectGroup()   
+
+    showGroup(value,args[4],km="normalKmeans")
+    selectNormalGroup()
+
 def save_test_data(ctx, param, value):
     if value =='-1':
         selectGroup()  
+    test_test_data(value)
 
+def save_test_data_with_normal(ctx, param, value):
+    if value =='-1':
+       selectNormalGroup()  
+
+    test_test_data(value,"normalKmeans")
+
+def test_test_data(value,kmeansType="kmeans"):
     testSampleGroup = []
     testSample = []
     data = value.split( )
@@ -549,13 +620,15 @@ def save_test_data(ctx, param, value):
 
     testSampleGroup.append(testSample)
     print(testSample)
+    print(kmeansType)
 
-    predictGroup = taskData['kmeans'].predict([testSample])[0]
+    predictGroup = taskData[kmeansType].predict([testSample])[0]
     print(predictGroup)
-    showGroup(predictGroup,args[4],testSampleGroup)
-    testInputData()  
-
-
+    showGroup(predictGroup,args[4],testSampleGroup,kmeansType)
+    if(kmeansType=="kmeans"):
+       testInputData()  
+    else:
+       testInputDataWithNormalKmeans()
 
 # @click.command()
 # @click.option('--start', prompt='trainning start time',callback=save_args)
@@ -619,10 +692,24 @@ def selectGroup(group):
     # trainning(start,end,starttest, endtest)
     print(group)
 
+@click.command()
+@click.option('--group', prompt='which normal gourp do you want to see ',type=int,callback=save_normal_group)
+def selectNormalGroup(group):
+
+    # trainning(start,end,starttest, endtest)
+    print(group)
+
 
 @click.command()
 @click.option('--group', prompt='please enter test data(same window size)',type=str,callback=save_test_data)
 def testInputData(data):
+
+    # trainning(start,end,starttest, endtest)
+    print(data)
+
+@click.command()
+@click.option('--group', prompt='please enter test data normal(same window size)',type=str,callback=save_test_data_with_normal)
+def testInputDataWithNormalKmeans(data):
 
     # trainning(start,end,starttest, endtest)
     print(data)
