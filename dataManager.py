@@ -326,42 +326,7 @@ def trainning(startTimeS,endTimeS,startTest, endTest,windowSize,ksize):
     clusters = kmeans.cluster_centers_
 
 
-    normalTd = []
-    anormalyTd = []
-    normalKPI = (len(td)/ksize)*0.05
-    print("kpi:",normalKPI)
-
-    print(kmeans.labels_)
-
-    
-    for i in range(0,len(kmeans.labels_)):
-        if kmeans.labels_[i] in dataGroup:
-           dataGroup[kmeans.labels_[i]] = dataGroup[kmeans.labels_[i]]+1
-        else:
-           dataGroup[kmeans.labels_[i]]=1
-
-
-    for i in range(0,len(td)):
-        if (dataGroup[kmeans.labels_[i]]>=normalKPI):
-            normalTd.append(td[i])
-        else:
-            if kmeans.labels_[i] not in anormalyGroup:
-               anormalyGroup[kmeans.labels_[i]]= []
-            anormalyGroup[kmeans.labels_[i]].append(td[i])
-
-
-
-    # print (normalTd)
-
-
-
-    print("anormaly groups:",len(anormalyGroup))
-    for i in anormalyGroup:
-        print ("group:",i," with ",len(anormalyGroup[i])," data")
-
-    print("normal data size:",len(normalTd))
-    normalKmeans = KMeans(n_clusters=ksize-len(anormalyGroup), random_state=0).fit(normalTd)
-
+    normalKmeans = getNormalKMeans(kmeans,td,ksize)
 
     for i in range(0,len(kmeans.labels_)):
         if kmeans.labels_[i] in stdevs:
@@ -436,6 +401,56 @@ def trainning(startTimeS,endTimeS,startTest, endTest,windowSize,ksize):
 
 
     return kmeans
+
+def getNormalKMeans(kmeans,td,ksize):
+
+    print("----remove anormaly data------")
+    anormalyGroup = {}
+    dataGroup = {}
+
+    normalTd = []
+    normalKPI = (len(td)/ksize)*0.05
+    print("kpi:",normalKPI)
+
+    print(kmeans.labels_)
+
+
+    # count the data of each label
+    for i in range(0,len(kmeans.labels_)):
+        if kmeans.labels_[i] in dataGroup:
+           dataGroup[kmeans.labels_[i]] = dataGroup[kmeans.labels_[i]]+1
+        else:
+           dataGroup[kmeans.labels_[i]]=1
+
+
+    for i in range(0,len(td)):
+        if (dataGroup[kmeans.labels_[i]]>=normalKPI):
+            normalTd.append(td[i])
+        else:
+            if kmeans.labels_[i] not in anormalyGroup:
+               anormalyGroup[kmeans.labels_[i]]= []
+            anormalyGroup[kmeans.labels_[i]].append(td[i])
+    # print (normalTd)
+
+
+    print("anormaly groups:",len(anormalyGroup))
+    for i in anormalyGroup:
+        print ("group:",i," with ",len(anormalyGroup[i])," data")
+
+    print("current normal data size:",len(normalTd))
+    ksize = ksize-len(anormalyGroup)
+    normalKmeans = KMeans(n_clusters=ksize, random_state=0).fit(normalTd)
+
+    if(len(anormalyGroup)==0):
+        print("final normal data size:",len(normalTd))
+        print("final normal k size:",ksize)
+        return normalKmeans
+    else:
+        return getNormalKMeans(normalKmeans,normalTd,ksize)
+
+    return normalKmeans
+
+
 
 def initTrainnigData(data,windowSize):
     td = []
@@ -529,9 +544,6 @@ args = []
 stdevs = {}
 stdevMeans = {}
 stdevVars = {}
-dataGroup = {}
-anormalyGroup = {}
-
 
 def save_start(ctx, param, value):
     if not value or ctx.resilient_parsing:
