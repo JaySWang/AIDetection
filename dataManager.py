@@ -326,7 +326,7 @@ def trainning(startTimeS,endTimeS,startTest, endTest,windowSize,ksize):
     clusters = kmeans.cluster_centers_
 
 
-    normalKmeans = getNormalKMeans(kmeans,td,ksize)
+    normalKmeans = getNormalKMeans(kmeans,td,ksize,windowSize)
 
     for i in range(0,len(kmeans.labels_)):
         if kmeans.labels_[i] in stdevs:
@@ -402,7 +402,7 @@ def trainning(startTimeS,endTimeS,startTest, endTest,windowSize,ksize):
 
     return kmeans
 
-def getNormalKMeans(kmeans,td,ksize):
+def getNormalKMeans(kmeans,td,ksize,windowSize):
 
     print("----remove anormaly data------")
     anormalyGroup = {}
@@ -422,7 +422,7 @@ def getNormalKMeans(kmeans,td,ksize):
         else:
            dataGroup[kmeans.labels_[i]]=1
 
-
+    # find anormaly group with little data
     for i in range(0,len(td)):
         if (dataGroup[kmeans.labels_[i]]>=normalKPI):
             normalTd.append(td[i])
@@ -430,12 +430,19 @@ def getNormalKMeans(kmeans,td,ksize):
             if kmeans.labels_[i] not in anormalyGroup:
                anormalyGroup[kmeans.labels_[i]]= []
             anormalyGroup[kmeans.labels_[i]].append(td[i])
+            anormalyGroups.append(td[i])
+
+
     # print (normalTd)
 
 
     print("anormaly groups:",len(anormalyGroup))
     for i in anormalyGroup:
         print ("group:",i," with ",len(anormalyGroup[i])," data")
+        showAnormalyGroup(i,normalKPI,anormalyGroup[i],windowSize,kmeans)
+
+
+
 
     print("current normal data size:",len(normalTd))
     ksize = ksize-len(anormalyGroup)
@@ -446,7 +453,7 @@ def getNormalKMeans(kmeans,td,ksize):
         print("final normal k size:",ksize)
         return normalKmeans
     else:
-        return getNormalKMeans(normalKmeans,normalTd,ksize)
+        return getNormalKMeans(normalKmeans,normalTd,ksize,windowSize)
 
     return normalKmeans
 
@@ -493,6 +500,40 @@ def getDiff(center,sample):
     sum = np.sqrt(sum)
 
     return sum.quantize(Decimal('0.00'))
+
+
+def showAnormalyGroup(group,normalKPI,anormalyData,windowSize,kMeans):
+
+    clusters = kMeans.cluster_centers_
+
+    plt.figure(figsize=(4,8),dpi=100)
+    plt.title(" anormaly requestCount")
+    plt.ylabel("requestCount")  
+
+
+    x = []
+    for j in range(0,windowSize):
+        x.append(j)
+
+
+    p = plt.subplot(2,1,1)
+    legend = []
+    p.plot(x,clusters[group])
+    legend.append("group "+str(group)+" is anormaly with only "+str(len(anormalyData))+" data;KPI is "+str(normalKPI) )
+
+
+    plt.legend(legend, loc='upper left')
+    
+    p = plt.subplot(2,1,2)
+
+    legend = []
+    for j in range(0,len(anormalyData)):
+            p.plot(x,anormalyData[j])
+
+    plt.legend(legend, loc='upper left') 
+
+    plt.show()
+
 
 
 def showGroup(group,windowSize,testSample=None,km = "kmeans"):
@@ -544,6 +585,7 @@ args = []
 stdevs = {}
 stdevMeans = {}
 stdevVars = {}
+anormalyGroups =[]
 
 def save_start(ctx, param, value):
     if not value or ctx.resilient_parsing:
