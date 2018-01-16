@@ -21,7 +21,8 @@ import model.OrmManager as orm
 from model.OrmManager import Task,Model,ModelFeature,Feature,FeatureData,Record,Data
 from sqlalchemy import desc,or_
 
-from sklearn.cluster import KMeans
+from KMeans import *
+
 import numpy as np
 from decimal import *
 
@@ -328,6 +329,8 @@ def trainning(startTimeS,endTimeS,startTest, endTest,windowSize,ksize):
 
     normalKmeans = getNormalKMeans(kmeans,td,ksize,windowSize)
 
+    print(clusters)
+    print(kmeans.labels_)
     for i in range(0,len(kmeans.labels_)):
         if kmeans.labels_[i] in stdevs:
            evs = stdevs[kmeans.labels_[i]]
@@ -370,8 +373,10 @@ def trainning(startTimeS,endTimeS,startTest, endTest,windowSize,ksize):
     legend = []
     for i in range(0,len(clusters)):
         p.plot(x,clusters[i])
-        legend.append("group "+str(i)+" with "+str(len(stdevs[i]))+" data" +"   stdev mean:"+str(stdevMeans[i])+" stdev vars:"+str(stdevVars[i]))
-
+        if(i in stdevs):
+            legend.append("group "+str(i)+" with "+str(len(stdevs[i]))+" data" +"   stdev mean:"+str(stdevMeans[i])+" stdev vars:"+str(stdevVars[i]))
+        else:
+            legend.append("group "+str(i)+" with 0 data")
 
     plt.legend(legend, loc='upper left')
 
@@ -404,6 +409,8 @@ def trainning(startTimeS,endTimeS,startTest, endTest,windowSize,ksize):
 
 def getNormalKMeans(kmeans,td,ksize,windowSize):
 
+    print("inertia_/dataSize:",kmeans.inertia_/len(td))
+
     print("----remove anormaly data------")
     anormalyGroup = {}
     dataGroup = {}
@@ -411,9 +418,6 @@ def getNormalKMeans(kmeans,td,ksize,windowSize):
     normalTd = []
     normalKPI = (len(td)/ksize)*0.05
     print("kpi:",normalKPI)
-
-    print(kmeans.labels_)
-
 
     # count the data of each label
     for i in range(0,len(kmeans.labels_)):
@@ -446,7 +450,7 @@ def getNormalKMeans(kmeans,td,ksize,windowSize):
 
     print("current normal data size:",len(normalTd))
     ksize = ksize-len(anormalyGroup)
-    normalKmeans = KMeans(n_clusters=ksize, random_state=0).fit(normalTd)
+    normalKmeans = KMeans(n_clusters=ksize, random_state=0).fit(np.array(normalTd))
 
     if(len(anormalyGroup)==0):
         print("final normal data size:",len(normalTd))
@@ -484,11 +488,9 @@ def moving_average(a,n=5):
 
 def chunks(a,n):
     twoDArray = []
-    print (a)
     for i in range(n,len(a),n):
         subArray = a[i-n:i]
         twoDArray.append(subArray.tolist()) 
-    print (twoDArray)
     return twoDArray
 
 def getDiff(center,sample):
@@ -518,6 +520,9 @@ def showAnormalyGroup(group,normalKPI,anormalyData,windowSize,kMeans):
 
     p = plt.subplot(2,1,1)
     legend = []
+
+    print(group)
+    print(clusters)
     p.plot(x,clusters[group])
     legend.append("group "+str(group)+" is anormaly with only "+str(len(anormalyData))+" data;KPI is "+str(normalKPI) )
 
@@ -559,8 +564,10 @@ def showGroup(group,windowSize,testSample=None,km = "kmeans"):
     p = plt.subplot(2,1,1)
     legend = []
     p.plot(x,clusters[group])
-    legend.append("group "+str(group)+" with "+str(len(stdevs[group]))+" data" +"  stdev mean:"+str(stdevMeans[group])+" stdev vars:"+str(stdevVars[group]) )
-
+    if(group in stdevs):
+       legend.append("group "+str(group)+" with "+str(len(stdevs[group]))+" data" +"  stdev mean:"+str(stdevMeans[group])+" stdev vars:"+str(stdevVars[group]) )
+    else:
+        legend.append("group "+str(group)+" with 0 data")
 
     plt.legend(legend, loc='upper left')
 
@@ -569,10 +576,11 @@ def showGroup(group,windowSize,testSample=None,km = "kmeans"):
 
     legend = []
     for j in range(0,len(testSample)):
-        predictGroup = taskData[km].predict([testSample[j]])
-        t = "belongs to" + str(predictGroup)+" with stdev:"+str(getDiff(clusters[predictGroup][0],testSample[j]))
+        predictGroup = taskData[km].predict([testSample[j]])[0]
         if(predictGroup==group):
             p.plot(x,testSample[j])
+            print(clusters[predictGroup])
+            t = "belongs to" + str(predictGroup)+" with stdev:"+str(getDiff(clusters[predictGroup],testSample[j]))
             legend.append(t)
 
     plt.legend(legend, loc='upper left') 
