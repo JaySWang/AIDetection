@@ -21,7 +21,8 @@ import model.OrmManager as orm
 from model.OrmManager import Task,Model,ModelFeature,Feature,FeatureData,Record,Data
 from sqlalchemy import desc,or_
 
-from KMeans import *
+# from KMeans import *
+from sklearn.cluster import KMeans
 
 import numpy as np
 from decimal import *
@@ -323,14 +324,16 @@ def trainning(startTimeS,endTimeS,startTest, endTest,windowSize,ksize):
 
     td = np.array(td)
 
-    kmeans = KMeans(n_clusters=ksize, random_state=0).fit(td)
+    # kmeans = KMeans(n_clusters=ksize, random_state=0,init='random',n_init=10).fit(td)
+    kmeans = KMeans(n_clusters=ksize, random_state=0,init='random',n_init=1).fit(td)
+
     clusters = kmeans.cluster_centers_
 
 
     normalKmeans = getNormalKMeans(kmeans,td,ksize,windowSize)
 
-    print(clusters)
-    print(kmeans.labels_)
+    # print(clusters)
+    # print(kmeans.labels_)
     for i in range(0,len(kmeans.labels_)):
         if kmeans.labels_[i] in stdevs:
            evs = stdevs[kmeans.labels_[i]]
@@ -348,7 +351,7 @@ def trainning(startTimeS,endTimeS,startTest, endTest,windowSize,ksize):
         stdevMeans[k] = mean.quantize(Decimal('0.00'))
         stdevVars[k] = var.quantize(Decimal('0.00'))  
 
-    print(kmeans.inertia_)
+    # print(kmeans.inertia_)
 
 
     # print(kmeans.predict([[0,0,0], [4, 14,7]]))
@@ -397,7 +400,7 @@ def trainning(startTimeS,endTimeS,startTest, endTest,windowSize,ksize):
     plt.legend(legend, loc='upper left')
 
  
-    plt.show()
+    # plt.show()
 
 
     taskData['normalKmeans'] = normalKmeans
@@ -450,7 +453,7 @@ def getNormalKMeans(kmeans,td,ksize,windowSize):
 
     print("current normal data size:",len(normalTd))
     ksize = ksize-len(anormalyGroup)
-    normalKmeans = KMeans(n_clusters=ksize, random_state=0).fit(np.array(normalTd))
+    normalKmeans = KMeans(n_clusters=ksize, random_state=0,init='random',n_init=1).fit(np.array(normalTd))
 
     if(len(anormalyGroup)==0):
         print("final normal data size:",len(normalTd))
@@ -537,7 +540,7 @@ def showAnormalyGroup(group,normalKPI,anormalyData,windowSize,kMeans):
 
     plt.legend(legend, loc='upper left') 
 
-    plt.show()
+    # plt.show()
 
 
 

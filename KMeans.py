@@ -42,9 +42,8 @@ class KMeans:
 		return result
 
 	def fit(self,x, y=None):
-		centroids,clusterAssment=self.__kMeans(x,self.__k)
-		
-		# centroids,clusterAssment=self.__newBiKmeans(x,self.__k)
+		# centroids,clusterAssment=self.__kMeans(x,self.__k)
+		centroids,clusterAssment=self.__newBiKmeans(x,self.__k)
 		self.cluster_centers_ = np.array(centroids)
 
 		self.clusterAssment = clusterAssment
@@ -86,7 +85,7 @@ class KMeans:
 	        centroids[:, j] = float(minJ) + rangeJ * np.random.rand(k, 1)
 	    return centroids
 
-	def __kMeans(self,dataSet, k, maxIter = 5):
+	def __kMeans(self,dataSet, k, maxIter = 300):
 	    """
 	    K-Means
 	    Args:
@@ -154,7 +153,8 @@ class KMeans:
 	            ptsInCurrCluster = dataSet[nonzero(clusterAssment[:,0].A==i)[0],:]#get the data points currently in cluster i
 	            # 找出归为一类簇的点的集合，之后再进行二分，在其中的簇的群下再划分簇
 	            #第一次循环时，i=0，相当于，一整个数据集都是属于0簇，取了全部的dataSet数据
-
+	            if(len(ptsInCurrCluster)==0):
+	            	continue
 	            centroidMat, splitClustAss = self.__kMeans(ptsInCurrCluster, 2)
 	            #开始正常的一次二分簇点
 	            #splitClustAss，类似于[0   2.3243]之类的，第一列是簇类，第二列是簇内点到簇点的误差
